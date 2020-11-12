@@ -189,6 +189,10 @@ class BARTHubInterface(nn.Module):
             name, num_classes=num_classes, embedding_size=embedding_size, **kwargs
         )
 
+
+    def replace_encoder_embedding_layer(self):
+        self.model.replace_encoder_embedding_layer(self.task.source_dictionary)
+
     def predict(self, head: str, tokens: torch.LongTensor, return_logits: bool = False):
         if tokens.dim() == 1:
             tokens = tokens.unsqueeze(0)

@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 from fairseq import utils
 from fairseq.models import register_model, register_model_architecture
-from fairseq.models.transformer import TransformerModel
+from fairseq.models.transformer import TransformerModel, TransformerEncoder
 from fairseq.modules.transformer_sentence_encoder import init_bert_params
 
 from .hub_interface import BARTHubInterface
@@ -41,6 +41,7 @@ class BARTModel(TransformerModel):
         self.apply(init_bert_params)
 
         self.classification_heads = nn.ModuleDict()
+
 
     @staticmethod
     def add_args(parser):
@@ -122,6 +123,18 @@ class BARTModel(TransformerModel):
             **kwargs,
         )
         return BARTHubInterface(x["args"], x["task"], x["models"][0])
+    
+    def replace_encoder_embedding_layer(self, src_dict):
+        encoder_embed_tokens = self.build_embedding(
+            self.args, src_dict, self.args.encoder_embed_dim, self.args.encoder_embed_path
+        )
+        new_encoder = self.build_encoder(self.args, src_dict, encoder_embed_tokens)
+        self.encoder.embed_tokens = new_encoder
+    #     print(self.encoder.embed_tokens, type(self.encoder.embed_tokens))
+    #     print(self.args)
+    #     self.encoder.embed_tokens = None
+    #     print(self.encoder.embed_tokens)
+        
 
     def register_classification_head(
         self, name, num_classes=None, inner_dim=None, **kwargs
