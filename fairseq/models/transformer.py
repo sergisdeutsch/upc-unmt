@@ -29,7 +29,7 @@ from fairseq.modules import (
 )
 from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
 from torch import Tensor
-
+import collections, copy
 
 DEFAULT_MAX_SOURCE_POSITIONS = 1024
 DEFAULT_MAX_TARGET_POSITIONS = 1024
@@ -219,7 +219,8 @@ class TransformerModel(FairseqEncoderDecoderModel):
                 args, tgt_dict, args.decoder_embed_dim, args.decoder_embed_path
             )
 
-        encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens)
+        new_encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens)
+        encoder = cls.build_encoder(args, src_dict, encoder_embed_tokens, new_encoder)
         decoder = cls.build_decoder(args, tgt_dict, decoder_embed_tokens)
         return cls(args, encoder, decoder)
 
@@ -236,8 +237,8 @@ class TransformerModel(FairseqEncoderDecoderModel):
         return emb
 
     @classmethod
-    def build_encoder(cls, args, src_dict, embed_tokens):
-        return TransformerEncoder(args, src_dict, embed_tokens)
+    def build_encoder(cls, args, src_dict, embed_tokens, new_encoder=None):
+        return TransformerEncoder(args, src_dict, embed_tokens, new_encoder)
 
     @classmethod
     def build_decoder(cls, args, tgt_dict, embed_tokens):
@@ -305,7 +306,7 @@ class TransformerEncoder(FairseqEncoder):
         embed_tokens (torch.nn.Embedding): input embedding
     """
 
-    def __init__(self, args, dictionary, embed_tokens):
+    def __init__(self, args, dictionary, embed_tokens, new_encoder=None):
         super().__init__(dictionary)
         self.register_buffer("version", torch.Tensor([3]))
 
@@ -318,7 +319,11 @@ class TransformerEncoder(FairseqEncoder):
         self.padding_idx = embed_tokens.padding_idx
         self.max_source_positions = args.max_source_positions
 
-        self.embed_tokens = embed_tokens
+        if new_encoder:
+            print('Set new_encoder as embedding layer')
+            self.embed_tokens = new_encoder
+        else:
+            self.embed_tokens = embed_tokens
 
         self.embed_scale = 1.0 if args.no_scale_embedding else math.sqrt(embed_dim)
 
@@ -503,6 +508,17 @@ class TransformerEncoder(FairseqEncoder):
         return min(self.max_source_positions, self.embed_positions.max_positions)
 
     def upgrade_state_dict_named(self, state_dict, name):
+
+        state_dict_copy = collections.OrderedDict()
+        for k in state_dict:
+            if 'encoder.embed_tokens' in k:
+                print('Found encoder.embed_tokens')
+                for key in self.embed_tokens.state_dict():
+                    state_dict_copy['encoder.embed_tokens.'+key] = self.embed_tokens.state_dict()[key]
+            else:
+                state_dict_copy[k] = copy.deepcopy(state_dict[k])
+        state_dict = copy.deepcopy(state_dict_copy)
+
         """Upgrade a (possibly old) state dict for new versions of fairseq."""
         if isinstance(self.embed_positions, SinusoidalPositionalEmbedding):
             weights_key = "{}.embed_positions.weights".format(name)

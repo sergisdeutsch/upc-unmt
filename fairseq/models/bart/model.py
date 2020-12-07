@@ -17,7 +17,7 @@ from fairseq.models.transformer import TransformerModel, TransformerEncoder
 from fairseq.modules.transformer_sentence_encoder import init_bert_params
 
 from .hub_interface import BARTHubInterface
-
+import collections, copy
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +165,16 @@ class BARTModel(TransformerModel):
     def upgrade_state_dict_named(self, state_dict, name):
         super().upgrade_state_dict_named(state_dict, name)
 
+        state_dict_copy = collections.OrderedDict()
+        for k in state_dict:
+            if 'encoder.embed_tokens' in k:
+                print('Found encoder.embed_tokens')
+                for key in self.encoder.embed_tokens.state_dict():
+                    state_dict_copy['encoder.embed_tokens.'+key] = self.encoder.embed_tokens.state_dict()[key]
+            else:
+                state_dict_copy[k] = copy.deepcopy(state_dict[k])
+        state_dict = copy.deepcopy(state_dict_copy)
+
         prefix = name + "." if name != "" else ""
         current_head_names = (
             []
@@ -218,57 +228,57 @@ class BARTModel(TransformerModel):
 
         # When finetuning on translation task, remove last row of
         # embedding matrix that corresponds to mask_idx token.
-        loaded_dict_size = state_dict["encoder.embed_tokens.weight"].size(0)
-        if (
-            loaded_dict_size == len(self.encoder.dictionary) + 1
-            and "<mask>" not in self.encoder.dictionary
-        ):
-            truncate_emb("encoder.embed_tokens.weight")
-            truncate_emb("decoder.embed_tokens.weight")
-            truncate_emb("encoder.output_projection.weight")
-            truncate_emb("decoder.output_projection.weight")
+        # loaded_dict_size = state_dict["encoder.embed_tokens.weight"].size(0)
+        # if (
+        #     loaded_dict_size == len(self.encoder.dictionary) + 1
+        #     and "<mask>" not in self.encoder.dictionary
+        # ):
+        #     truncate_emb("encoder.embed_tokens.weight")
+        #     truncate_emb("decoder.embed_tokens.weight")
+        #     truncate_emb("encoder.output_projection.weight")
+        #     truncate_emb("decoder.output_projection.weight")
 
-        # When continued pretraining on new set of languages for mbart,
-        # add extra lang embeddings at the end of embed_tokens.
-        # Note: newly added languages are assumed to have been added at the end.
-        if self.args.task == "multilingual_denoising" and loaded_dict_size < len(
-            self.encoder.dictionary
-        ):
-            logger.info(
-                "Adding extra language embeddings not found in pretrained model for "
-                "continued pretraining of MBART on new set of languages."
-            )
-            loaded_mask_token_embedding = state_dict["encoder.embed_tokens.weight"][
-                -1, :
-            ]
+        # # When continued pretraining on new set of languages for mbart,
+        # # add extra lang embeddings at the end of embed_tokens.
+        # # Note: newly added languages are assumed to have been added at the end.
+        # if self.args.task == "multilingual_denoising" and loaded_dict_size < len(
+        #     self.encoder.dictionary
+        # ):
+        #     logger.info(
+        #         "Adding extra language embeddings not found in pretrained model for "
+        #         "continued pretraining of MBART on new set of languages."
+        #     )
+        #     loaded_mask_token_embedding = state_dict["encoder.embed_tokens.weight"][
+        #         -1, :
+        #     ]
 
-            num_langids_to_add = len(self.encoder.dictionary) - loaded_dict_size
-            embed_dim = state_dict["encoder.embed_tokens.weight"].size(1)
+        #     num_langids_to_add = len(self.encoder.dictionary) - loaded_dict_size
+        #     embed_dim = state_dict["encoder.embed_tokens.weight"].size(1)
 
-            new_lang_embed_to_add = torch.zeros(num_langids_to_add, embed_dim)
-            nn.init.normal_(new_lang_embed_to_add, mean=0, std=embed_dim ** -0.5)
-            new_lang_embed_to_add = new_lang_embed_to_add.to(
-                dtype=state_dict["encoder.embed_tokens.weight"].dtype,
-            )
+        #     new_lang_embed_to_add = torch.zeros(num_langids_to_add, embed_dim)
+        #     nn.init.normal_(new_lang_embed_to_add, mean=0, std=embed_dim ** -0.5)
+        #     new_lang_embed_to_add = new_lang_embed_to_add.to(
+        #         dtype=state_dict["encoder.embed_tokens.weight"].dtype,
+        #     )
 
-            state_dict["encoder.embed_tokens.weight"] = torch.cat(
-                [
-                    state_dict["encoder.embed_tokens.weight"][
-                        : loaded_dict_size - 1, :
-                    ],
-                    new_lang_embed_to_add,
-                    loaded_mask_token_embedding.unsqueeze(0),
-                ]
-            )
-            state_dict["decoder.embed_tokens.weight"] = torch.cat(
-                [
-                    state_dict["decoder.embed_tokens.weight"][
-                        : loaded_dict_size - 1, :
-                    ],
-                    new_lang_embed_to_add,
-                    loaded_mask_token_embedding.unsqueeze(0),
-                ]
-            )
+        #     state_dict["encoder.embed_tokens.weight"] = torch.cat(
+        #         [
+        #             state_dict["encoder.embed_tokens.weight"][
+        #                 : loaded_dict_size - 1, :
+        #             ],
+        #             new_lang_embed_to_add,
+        #             loaded_mask_token_embedding.unsqueeze(0),
+        #         ]
+        #     )
+        #     state_dict["decoder.embed_tokens.weight"] = torch.cat(
+        #         [
+        #             state_dict["decoder.embed_tokens.weight"][
+        #                 : loaded_dict_size - 1, :
+        #             ],
+        #             new_lang_embed_to_add,
+        #             loaded_mask_token_embedding.unsqueeze(0),
+        #         ]
+        #     )
 
         # Copy any newly-added classification heads into the state dict
         # with their current weights.
